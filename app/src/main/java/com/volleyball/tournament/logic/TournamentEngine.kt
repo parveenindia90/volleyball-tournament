@@ -1,14 +1,18 @@
 package com.volleyball.tournament.logic
 
 import com.volleyball.tournament.data.MatchEntity
+import com.volleyball.tournament.data.TeamEntity
 import com.volleyball.tournament.data.TournamentEntity
 import java.util.UUID
 
 object TournamentEngine {
 
-    fun createTournament(name: String, teams: List<String>, targetScore: Int): Pair<TournamentEntity, List<MatchEntity>> {
+    fun generateInitialBracket(
+        tournament: TournamentEntity,
+        teams: List<TeamEntity>
+    ): Pair<TournamentEntity, List<MatchEntity>> {
         val n = teams.size
-        require(n >= 2) { "At least 2 teams required" }
+        require(n >= 2) { "At least 2 teams required to generate a bracket." }
 
         var bracketSize = 1
         var rounds = 0
@@ -17,74 +21,74 @@ object TournamentEngine {
             rounds++
         }
 
-        val tournamentId = UUID.randomUUID().toString()
         val numByes = bracketSize - n
-        val shuffledTeams = teams.shuffled()
+        val shuffledTeams = teams.map { it.name }.shuffled()
 
         val byeTeams = shuffledTeams.take(numByes)
-        val round1PlayingTeams = shuffledTeams.drop(numByes)
+        val playingTeams = shuffledTeams.drop(numByes)
 
         val matches = mutableListOf<MatchEntity>()
         var matchNumber = 1
 
-        for (i in round1PlayingTeams.indices step 2) {
+        // Regular Round 1 matches
+        for (i in playingTeams.indices step 2) {
             matches.add(
                 MatchEntity(
                     id = UUID.randomUUID().toString(),
-                    tournamentId = tournamentId,
+                    tournamentId = tournament.id,
                     roundIndex = 1,
                     matchNumber = matchNumber++,
-                    teamAName = round1PlayingTeams[i],
-                    teamBName = round1PlayingTeams[i + 1],
+                    teamAName = playingTeams[i],
+                    teamBName = playingTeams[i + 1],
+                    isStarted = false,
                     isCompleted = false,
                     isBye = false
                 )
             )
         }
 
+        // Round 1 Byes
         for (byeTeam in byeTeams) {
             matches.add(
                 MatchEntity(
                     id = UUID.randomUUID().toString(),
-                    tournamentId = tournamentId,
+                    tournamentId = tournament.id,
                     roundIndex = 1,
                     matchNumber = matchNumber++,
                     teamAName = byeTeam,
                     teamBName = null,
                     winnerName = byeTeam,
+                    isStarted = true,
                     isCompleted = true,
                     isBye = true
                 )
             )
         }
 
-        val tournament = TournamentEntity(
-            id = tournamentId,
-            name = name,
-            targetPoints = targetScore,
-            currentRound = 1,
+        val updatedTournament = tournament.copy(
+            isStarted = true,
             totalRounds = rounds,
-            isCompleted = false
+            currentRound = 1
         )
 
-        return Pair(tournament, matches)
+        return Pair(updatedTournament, matches)
     }
 
     fun generateNextRoundMatches(
         tournament: TournamentEntity,
-        completedRoundMatches: List<MatchEntity>
+        currentRoundMatches: List<MatchEntity>
     ): List<MatchEntity> {
         val nextRound = tournament.currentRound + 1
-        val qualifiedTeams = completedRoundMatches.mapNotNull { it.winnerName }
+        val winners = currentRoundMatches.mapNotNull { it.winnerName }
 
-        if (qualifiedTeams.size <= 1) return emptyList()
+        if (winners.size <= 1) return emptyList()
 
         val matches = mutableListOf<MatchEntity>()
         var matchNumber = 1
 
-        for (i in qualifiedTeams.indices step 2) {
-            val teamA = qualifiedTeams[i]
-            val teamB = qualifiedTeams.getOrNull(i + 1)
+        for (i in winners.indices step 2) {
+            val teamA = winners[i]
+            val teamB = winners.getOrNull(i + 1)
 
             matches.add(
                 MatchEntity(
@@ -95,6 +99,7 @@ object TournamentEngine {
                     teamAName = teamA,
                     teamBName = teamB,
                     winnerName = if (teamB == null) teamA else null,
+                    isStarted = teamB == null,
                     isCompleted = teamB == null,
                     isBye = teamB == null
                 )
